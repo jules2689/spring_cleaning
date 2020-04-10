@@ -3,7 +3,8 @@ require "cli/ui"
 
 class GithubClient
   RetryError = Class.new(StandardError)
-  REPOS_CACHE_PATH = File.expand_path("../data/repos.json", __FILE__)
+  VERSION = "v1"
+  REPOS_CACHE_PATH = File.expand_path("../data/repos_#{VERSION}.json", __FILE__)
   attr_reader :github_client
 
   def initialize(token)
@@ -12,7 +13,11 @@ class GithubClient
   end
 
   def close_all_issues(repo, success = ->() {}, failure = ->(err) {})
-    issues = @github_client.list_issues(repo)
+    unless CLI::UI.confirm("Are you sure you want to {{red:close all issues}} this repo?")
+      raise RetryError
+    end
+
+    issues = @github_client.list_issues(repo).reject { |i| !i.pull_request.nil? }
     puts "Found #{issues.size} issues for #{repo}"
 
     spin_group = CLI::UI::SpinGroup.new
@@ -23,6 +28,7 @@ class GithubClient
     end
     spin_group.wait
     success.call()
+    issues.map(&:id)
   rescue => e
     failure.call(e)
   end
@@ -37,11 +43,24 @@ class GithubClient
 
     # If we're still empty (cache was empty, or invalid) then fetch al the repos
     if repos_cache.empty?
-      repos = @github_client.repositories
+      repos = []
+      CLI::UI::Spinner.spin("Calling out to GitHub, this could take a while if you have access to a lot of repos") do |spinner|
+        repos = @github_client.repositories
+      end
       repos_cache = repos.each_with_object({}) do |r, acc|
-        next if r.archived
         acc[r.owner.login] ||= {}
-        acc[r.owner.login][r.id] = r.name
+        acc[r.owner.login][r.id] = {
+          name: r.name,
+          fork: r.fork,
+          archived: r.archived,
+          private: r.private,
+          url: r.html_url,
+          stars: r.stargazers_count,
+          subscribers: r.subscribers_count,
+          open_issues_count: r.open_issues_count,
+          last_push: r.pushed_at,
+          last_update: r.updated_at,
+        }
       end
       File.write(REPOS_CACHE_PATH, JSON.pretty_generate(repos_cache))
     end
@@ -73,9 +92,7 @@ class GithubClient
       raise RetryError
     end
   
-    @github_client.delete_repo("#{org}/#{name}")
-  
-    if @github_client.last_response.status < 300
+    if @github_client.delete_repo("#{org}/#{name}")
       success.call()
     else
       failure.call()

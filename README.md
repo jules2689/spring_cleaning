@@ -12,6 +12,7 @@ You will be able to archive repos, delete repos, and close all issues on repos .
 3. Run `ruby clean.rb`
    - This will download the needed dependencies using Bundler Inline, direct you on getting a GitHub Token, and then walk you through the process
    - After downloading the list of repos, you can quit at any time using `CTRL-C`. Your progress will be saved.
+   - Run with `INCLUDE_ARCHIVED=1` if you want to audit archived repos too
 
 ### Repo Cache
 

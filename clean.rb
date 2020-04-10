@@ -12,16 +12,16 @@ require "cli/ui"
 require_relative "github_client"
 require "json"
 
-def success_callback(action = nil)
+def success_callback(org, repo_name, action = nil)
   -> () do
     puts CLI::UI.fmt("{{v}} Success.")
-    CURRENT_DECISIONS[org]['repos'][name][action] = true if action
+    CURRENT_DECISIONS[org]['repos'][repo_name][action] = true if action
   end
 end
 
 def failure_callback
-  -> (err) do
-    puts CLI::UI.fmt("{{?}} Failed. #{err.message}")
+  -> (err = nil) do
+    puts CLI::UI.fmt("{{?}} Failed. #{err&.message}".strip)
   end
 end
 
@@ -30,35 +30,45 @@ def can_skip?(repo)
 end
 
 def process_all_repos(org, repos)
-  repos.each do |id, name|
-    CURRENT_DECISIONS[org]['repos'][name] ||= {}
-    next if can_skip?(CURRENT_DECISIONS[org]['repos'][name])
+  repos.each do |id, repo|
+    repo_name = repo["name"]
+    CURRENT_DECISIONS[org]['repos'][repo_name] ||= {}
+    next if can_skip?(CURRENT_DECISIONS[org]['repos'][repo_name])
+    CURRENT_DECISIONS[org]['repos'][repo_name]['decisions'] ||= []
 
-    CURRENT_DECISIONS[org]['repos'][name]['decisions'] ||= []
 
-    CLI::UI::Frame.open(name, timing: false) do
+    CLI::UI::Frame.open(repo_name, timing: false) do
+      repo.each { |k, v| puts CLI::UI.fmt("{{bold:#{k}}}: #{v}}}") }
+      puts ""
+      CLI::UI::Frame.divider(nil)
+
       begin
         CLI::UI::Prompt.ask('What do you want to do?') do |handler|
           handler.option('Archive') do
-            CURRENT_DECISIONS[org]['repos'][name]['decisions'] << { action: 'Archive', time: Time.now }
-            GITHUB_CLIENT.archive_repo(org, name, success_callback("archive"), failure_callback)
+            if repo["archived"]
+              puts "Already archived"
+              raise GithubClient::RetryError
+            else
+              CURRENT_DECISIONS[org]['repos'][repo_name]['decisions'] << { action: 'Archive', time: Time.now }
+              GITHUB_CLIENT.archive_repo(org, repo_name, success_callback(org, repo_name, "archive"), failure_callback)
+            end
           end
           handler.option('Delete') do
-            CURRENT_DECISIONS[org]['repos'][name]['decisions'] << { action: 'Delete', time: Time.now }
-            GITHUB_CLIENT.delete_repo(org, name, success_callback("delete"), failure_callback)
+            CURRENT_DECISIONS[org]['repos'][repo_name]['decisions'] << { action: 'Delete', time: Time.now }
+            GITHUB_CLIENT.delete_repo(org, repo_name, success_callback(org, repo_name, "delete"), failure_callback)
           end
           handler.option('Close all issues') do
-            CURRENT_DECISIONS[org]['repos'][name]['decisions'] << { action: 'Close Issues', time: Time.now }
-            GITHUB_CLIENT.close_all_issues("#{org}/#{name}", success_callback(), failure_callback)
+            ids = GITHUB_CLIENT.close_all_issues("#{org}/#{repo_name}", success_callback(org, repo_name), failure_callback)
+            CURRENT_DECISIONS[org]['repos'][repo_name]['decisions'] << { action: 'Close Issues', time: Time.now, ids: ids }
             raise GithubClient::RetryError # Always wanna retry as we haven't skipped, archived, or deleted
           end
           handler.option('Open') do
-            system("open https://github.com/#{org}/#{name}")
+            system("open #{repo["url"]}")
             raise GithubClient::RetryError
           end
           handler.option('Skip') do
-            CURRENT_DECISIONS[org]['repos'][name]['decisions'] << { action: 'Skip Issues', time: Time.now }
-            CURRENT_DECISIONS[org]['repos'][name]['skipped'] = true
+            CURRENT_DECISIONS[org]['repos'][repo_name]['decisions'] << { action: 'Skip Issues', time: Time.now }
+            CURRENT_DECISIONS[org]['repos'][repo_name]['skipped'] = true
           end
         end
       rescue GithubClient::RetryError
@@ -71,15 +81,23 @@ end
 def process_all_orgs(cache)
   CLI::UI::Frame.open("Processing by owner...") do
     cache.each do |org, repos|
+      # Initialize this run
       CURRENT_DECISIONS[org] ||= { 'repos' => {} }
 
+      # Skip if the org is skipped
       if CURRENT_DECISIONS[org]['skipped']
         puts CLI::UI.fmt "{{i}} {{cyan:#{org}}} is marked as skipped in the decision log, skipping."
         next
       end
 
+      # Remove archvied unless we want them
+      unless ENV['INCLUDE_ARCHIVED']
+        repos = repos.reject { |_, v| v[:archived] }
+      end
+
       # Can skip if we have handled all the repos and all are skippable
-      if repos.values.all? { |name| CURRENT_DECISIONS[org]['repos'].key?(name) } && CURRENT_DECISIONS[org]['repos'].all? { |_, v| can_skip?(v) }
+      repo_names = repos.values.map { |r| r["name"] }
+      if repo_names.all? { |name| CURRENT_DECISIONS[org]['repos'].key?(name) } && CURRENT_DECISIONS[org]['repos'].all? { |_, v| can_skip?(v) }
         puts CLI::UI.fmt "{{i}} All repos in {{cyan:#{org}}} are marked as skipped, deleted, or archived in the decision log, skipping this org."
         next
       end
