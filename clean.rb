@@ -21,13 +21,7 @@ end
 
 def failure_callback
   -> (err) do
-    if err.message =~ /was archived/
-      # This is only hit for archived
-      puts CLI::UI.fmt("{{v}} Success.")
-      CURRENT_DECISIONS[org]['repos'][name]['archived'] = true
-    else
-      puts CLI::UI.fmt("{{?}} Failed. #{e.message}")
-    end
+    puts CLI::UI.fmt("{{?}} Failed. #{err.message}")
   end
 end
 

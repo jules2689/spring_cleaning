@@ -60,8 +60,8 @@ class GithubClient
     else
       failure.call()
     end
-  rescue Octokit::Forbidden => e
-    if e.message =~ /was archived/
+  rescue Octokit::Error => e
+    if e.is_a?(Octokit::Forbidden) && e.message =~ /was archived/
       success.call()
     else
       failure.call(e)
@@ -80,7 +80,7 @@ class GithubClient
     else
       failure.call()
     end
-  rescue Octokit::Forbidden => e
+  rescue Octokit::Error => e
     failure.call(e)
   end
 end
