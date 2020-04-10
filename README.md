@@ -5,6 +5,9 @@ This app flows through your repos that you own and helps you audit then and clea
 
 You will be able to archive repos, delete repos, and close all issues on repos ... granted you have access, of course!
 
+<img width="696" alt="image" src="https://user-images.githubusercontent.com/3074765/79018405-c36cce80-7b41-11ea-8787-c9b54efbfda9.png">
+
+
 ### To Run
 
 1. Clone the repo with `git clone https://github.com/jules2689/spring_cleaning.git`
