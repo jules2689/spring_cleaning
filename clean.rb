@@ -26,7 +26,7 @@ def failure_callback
 end
 
 def can_skip?(repo)
-  repo['archived'] || repo['skipped'] || repo['deleted']
+  repo['archived'] || repo['skipped'] || repo['deleted'] || repo['delete']
 end
 
 def process_all_repos(org, repos)
@@ -97,7 +97,7 @@ def process_all_orgs(cache)
 
       # Can skip if we have handled all the repos and all are skippable
       repo_names = repos.values.map { |r| r["name"] }
-      if repo_names.all? { |name| CURRENT_DECISIONS[org]['repos'].key?(name) } && CURRENT_DECISIONS[org]['repos'].all? { |_, v| can_skip?(v) }
+      if repo_names.all? { |name| CURRENT_DECISIONS[org]['repos'].key?(name) && can_skip?(CURRENT_DECISIONS[org]['repos'][name]) }
         puts CLI::UI.fmt "{{i}} All repos in {{cyan:#{org}}} are marked as skipped, deleted, or archived in the decision log, skipping this org."
         next
       end
